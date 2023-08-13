@@ -56,6 +56,67 @@ void Die(const char* Reason, ...)
     exit(1);
 }
 
+// Timing ----------------------------------------------------------------------------------------------------
+
+typedef struct {
+    const char* Title;
+    double Elapsed;
+} _cmsTimeEntry;
+
+static _cmsTimeEntry TimeEntries[1000];
+static unsigned int NextTimeEntryIndex = 0;
+
+static void AddTime(const char* title, clock_t diff) {
+
+    TimeEntries[NextTimeEntryIndex].Title = title;
+    TimeEntries[NextTimeEntryIndex].Elapsed = (double)diff / CLOCKS_PER_SEC * 1000;
+
+    NextTimeEntryIndex++;
+}
+
+static void SortTimes(void)
+{
+    _cmsTimeEntry sorted[1000];
+    double max;
+    unsigned int index, i, sortedIndex = 0;
+
+    memset(sorted, 0, sizeof(sorted));
+
+    do {
+        max = 0;
+        index = 0;
+
+        for (i = 0; i < 1000; i++) {
+            if (TimeEntries[i].Elapsed >= max) {
+                max = TimeEntries[i].Elapsed;
+                index = i;
+            }
+        }
+        if (max > 0) {
+            sorted[sortedIndex].Title = TimeEntries[index].Title;
+            sorted[sortedIndex].Elapsed = TimeEntries[index].Elapsed;
+
+            TimeEntries[index].Elapsed = 0;
+
+            sortedIndex++;
+        }
+    } while (max > 0);
+
+    memcpy(TimeEntries, sorted, sizeof(sorted));
+}
+
+static void PrintTimes(void) {
+
+    unsigned int i;
+    SortTimes();
+    printf("\nTest times in descending order:\n");
+    for (i = 0; i < 1000; i++) {
+        if (TimeEntries[i].Elapsed > 0)
+            printf("\t%s - %g\n", TimeEntries[i].Title, TimeEntries[i].Elapsed);
+    }
+    fflush(stdout);
+}
+
 // Memory management replacement -----------------------------------------------------------------------------
 
 
@@ -291,6 +352,9 @@ void SubTest(const char* frm, ...)
 static
 void Check(const char* Title, TestFn Fn)
 {
+    cmsBool rc;
+    clock_t time;
+
     printf("Checking %s ...", Title);
     fflush(stdout);
 
@@ -300,7 +364,13 @@ void Check(const char* Title, TestFn Fn)
     SimultaneousErrors = 0;
     TotalTests++;
 
-    if (Fn() && !TrappedError) {
+    time = clock();
+    rc = Fn();
+    time = clock() - time;
+
+    AddTime(Title, time);
+
+    if (rc && !TrappedError) {
 
         // It is a good place to check memory
         TestMemoryLeaks(TRUE);
@@ -9166,6 +9236,8 @@ int main(int argc, char* argv[])
     _CrtSetDbgFlag ( _CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF );
 #endif
 
+    // Clear test timing array
+    memset(TimeEntries, 0, sizeof(TimeEntries));
 
     // First of all, check for the right header
    if (cmsGetEncodedCMMversion() != LCMS_VERSION) {
@@ -9444,6 +9516,8 @@ int main(int argc, char* argv[])
     // Cleanup
     if (DoCheckTests || DoSpeedTests)
         RemoveTestProfiles();
+
+    PrintTimes();
 
    return TotalFail;
 }
